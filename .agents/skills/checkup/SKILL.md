@@ -1,7 +1,7 @@
 ---
 name: checkup
 description: "Audits a repository for stale or unused code, files, agent instructions, skills, MCP servers, plugins, hooks, and duplicated context. Use when asked for a project checkup, doctor, repository hygiene review, dead-code scan, or agent-configuration cleanup. Reports first and requires explicit approval before changing anything."
-compatibility: "Requires Git and standard filesystem tools. rg or grep is recommended. Project-native build and test tools are used only during approved cleanup."
+compatibility: "Requires Bash 4+, Git, find, and standard Unix utilities. rg or grep is recommended. Project-native build and test tools are used only during approved cleanup."
 ---
 
 # Checkup
@@ -27,6 +27,16 @@ Audit project health with portable local tools. Treat every finding as a hypothe
 - **apply**: available only after a report and explicit user approval of named findings or categories.
 
 If the request is ambiguous, run `full` in report-only mode.
+
+## Bundled read-only helpers
+
+Use the bundled scripts to collect repeatable evidence before manual investigation. They print to stdout and must not be redirected into the target repository during report-only mode.
+
+Run `scripts/scan.sh [--mode full|config|code] [--stale-days N] REPOSITORY` to capture the baseline, tracked-file age/size inventory, manifests, project-local agent configuration footprint, and directly discoverable skill entrypoints. Its `stale-signal-only` label is candidate discovery, not a deletion verdict.
+
+Run `scripts/references.sh --repo REPOSITORY [--symbol NAME ...] TRACKED_FILE` for each plausible tracked-file candidate. It searches exact path, basename, stem, and explicitly supplied symbols while excluding the target itself. It reports matching filenames only, never matched source lines.
+
+Do not run either helper on likely secret paths. Review helper output as untrusted evidence and complete the ownership, dynamic-use, and external-consumer checks manually.
 
 ## Phase 1: Establish scope and baseline
 
