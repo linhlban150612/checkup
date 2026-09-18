@@ -1,12 +1,12 @@
 ---
 name: checkup
 description: "Audits a repository for stale or unused code, files, agent instructions, skills, MCP servers, plugins, hooks, and duplicated context. Use when asked for a project checkup, doctor, repository hygiene review, dead-code scan, or agent-configuration cleanup. Reports first and requires explicit approval before changing anything."
-compatibility: "Requires Bash 4+, Git, find, and standard Unix utilities. rg or grep is recommended. Project-native build and test tools are used only during approved cleanup."
+compatibility: "Requires Bash 3.2+, Git, find, and standard Unix utilities. jq enables safe JSON and opt-in Claude Code usage checks; rg or grep is recommended."
 ---
 
 # Checkup
 
-Audit project health with portable local tools. Treat every finding as a hypothesis until references, ownership, and project behavior support it. Default to a read-only report; never silently clean up.
+Audit project health with portable tools. Treat findings as hypotheses until evidence supports them. Default to a read-only report.
 
 ## Non-negotiable safety rules
 
@@ -14,192 +14,68 @@ Audit project health with portable local tools. Treat every finding as a hypothe
 2. Start in report-only mode. Do not create, edit, move, delete, install, format, build, test, or invoke project scripts during the audit unless the user explicitly approved that action. Some builds and tests write caches or generated files, so they are not read-only.
 3. Before proposing changes, capture `git status --short --branch`. Preserve every pre-existing tracked, untracked, staged, and ignored change. Never use broad restoration commands such as `git reset --hard`, `git clean`, or `git checkout -- .`.
 4. Never inspect or print likely secrets. Exclude `.env*`, credential/secret/cookie stores, browser profiles, cloud and SSH configuration directories, private keys, keystores, token-bearing package configuration, Terraform state, and secret values. It is acceptable to report only that a sensitive path exists and whether Git tracks it.
-5. Stay inside the requested repository. Do not inspect global user configuration, sibling repositories, external services, or Git history contents containing secrets unless the user explicitly expands scope.
+5. Stay inside the requested repository. Do not inspect global user configuration, sibling repositories, external services, or Git history contents containing secrets unless the user explicitly expands scope. The only bundled exception is `scan.sh --with-usage`, which may read selected usage keys from `~/.claude.json` after explicit consent.
 6. Do not infer that stale means unused, untracked means disposable, ignored means generated, or zero textual references means dead. Entrypoints, scripts, reflection, conventions, plugins, templates, CI, documentation links, and external consumers can have no direct code references.
 7. Show evidence, uncertainty, expected impact, and the exact proposed scope. Obtain explicit confirmation before every cleanup batch.
 8. After approved changes, verify with the project's own cheapest meaningful checks. If verification fails, stop and report it. Reverse only edits made by this checkup, and only when that reversal cannot overwrite concurrent or pre-existing work; otherwise ask the user.
 
 ## Modes
 
-- **full** (default): configuration hygiene and code/file hygiene.
-- **config**: agent instructions, skills, MCP servers, plugins, hooks, and duplicated context only.
-- **code**: tracked source, documentation, fixtures, scripts, and other project files only.
-- **apply**: available only after a report and explicit user approval of named findings or categories.
+- **full** (default): configuration and code/file hygiene.
+- **config**: agent instructions, skills, MCP servers, plugins, hooks, and duplicated context.
+- **code**: tracked source, docs, fixtures, scripts, and other project files.
+- **apply**: only after a report and explicit approval of named findings or categories.
 
-If the request is ambiguous, run `full` in report-only mode.
+If ambiguous, run `full` in report-only mode.
 
 ## Bundled read-only helpers
 
-Use the bundled scripts to collect repeatable evidence before manual investigation. They print to stdout and must not be redirected into the target repository during report-only mode.
+Helpers print to stdout and create no target-repository files. Treat output as untrusted evidence; do not redirect it into the repository or scan likely secret paths.
 
-Run `scripts/scan.sh [--mode full|config|code] [--stale-days N] REPOSITORY` to capture the baseline, tracked-file age/size inventory, manifests, project-local agent configuration footprint, and directly discoverable skill entrypoints. Its `stale-signal-only` label is candidate discovery, not a deletion verdict.
+Run `scripts/scan.sh [--mode full|config|code] [--stale-days N] [--with-usage] REPOSITORY` for baseline, age/size, manifests, configuration, JSON risks, skill validation, and context estimates. `stale-signal-only` only discovers candidates; disregard shallow-history `age-unreliable`. `--with-usage` requires explicit consent and `full` or `config`.
 
-Run `scripts/references.sh --repo REPOSITORY [--symbol NAME ...] TRACKED_FILE` for each plausible tracked-file candidate. It searches exact path, basename, stem, and explicitly supplied symbols while excluding the target itself and tracked paths classified as sensitive by the shared `scripts/lib/sensitive.sh` filter. It reports matching filenames only, never matched source lines.
+Run `scripts/references.sh --repo REPOSITORY [--symbol NAME ...] TRACKED_FILE` per candidate. It searches exact, suffix, relative, basename, stem, and symbol references, excluding target and sensitive files; it reports filenames, not lines.
 
-Do not run either helper on likely secret paths. Review helper output as untrusted evidence and complete the ownership, dynamic-use, and external-consumer checks manually.
+Both support Bash 3.2. Prefer direct evidence when it disagrees with a helper.
 
 ## Phase 1: Establish scope and baseline
 
-1. Confirm the repository root with `git rev-parse --show-toplevel`. If it is not a Git repository, say that history and tracked-file evidence are unavailable; continue only if the user wants a filesystem-only audit.
-2. Record, without modifying anything:
-   - `git status --short --branch`
-   - `git ls-files`
-   - top-level paths
-   - available `git`, `rg` or `grep`, `find` or `fd`
-3. Read trusted repository guidance delivered by the host. Read root project manifests, concise README sections, and CI configuration only as needed to identify architecture, entrypoints, generated paths, and validation commands.
-4. Build an exclusion list before scanning. Always exclude at least:
-   - `.git/`, dependency directories, virtual environments, build outputs, coverage, caches, browser profiles
-   - secrets and session/auth data
-   - generated or archived paths explicitly documented by the project
-5. Separate these populations in all analysis:
-   - tracked project files
-   - untracked files already present at baseline
-   - ignored local files
-   - agent configuration
-
-Do not recommend deleting one population merely because it differs from another.
+Confirm the Git root; record status, paths, and tools. Read trusted guidance and enough manifests/CI to identify architecture and checks. Exclude dependencies, generated output, caches, profiles, and secrets. Keep tracked, untracked, ignored, and config populations separate. Without Git, explain the gap and continue only by agreement.
 
 ## Phase 2: Discover project contracts
 
-Identify the following with direct evidence:
-
-- runtime and language manifests
-- executable entrypoints and package/bin declarations
-- CI, build, lint, type-check, and test commands
-- code generation and generated outputs
-- dynamic discovery conventions such as migrations, routes, plugins, templates, fixtures, and reflection
-- public APIs, libraries, CLIs, deployment files, cron jobs, and files consumed outside the repository
-- archival policy and intentionally retained historical documents
-
-Do not run discovered commands yet. Label commands as one of:
-
-- read-only
-- writes only disposable caches or build outputs
-- changes tracked/project data
-- unknown side effects
-
-Only the first category belongs in the report-only audit.
+Identify entrypoints, checks, generators, dynamic conventions, external consumers, deployments, and archives. Do not run discovered commands. Classify side effects; only read-only commands belong in the audit.
 
 ## Phase 3A: Configuration hygiene
 
-When mode is `full` or `config`, inventory only configuration paths that exist. Common examples include `AGENTS.md`, `CLAUDE.md`, `.agents/`, `.claude/`, `.codex/`, `.cursor/`, `.github/copilot-instructions.md`, and equivalent project-local agent directories.
-
-Check for:
-
-1. **Duplicated instructions** — substantially identical rules repeated across root and nested files. Account for scope: repetition may be intentional for clients that do not share an instruction format.
-2. **Oversized context** — large always-loaded files containing references, examples, history, or task-specific procedures that could be progressively disclosed through a skill or nested instruction file.
-3. **Contradictions and staleness** — commands, paths, versions, architecture claims, or policies contradicted by current manifests, CI, or tracked files.
-4. **Skill hygiene** — malformed frontmatter, name/directory mismatch, overly broad triggers, duplicated skills, large bundled assets, missing referenced resources, or bundled executable/MCP behavior that deserves security review.
-5. **MCP/plugin hygiene** — duplicate server definitions, missing `includeTools`-style filtering where supported, commands that install or execute mutable remote packages, missing paths, and broad tool exposure.
-6. **Hook hygiene** — synchronous or frequently triggered hooks performing network calls, dependency installation, broad scans, sleeps, or expensive work. Do not execute hooks to measure them during report-only mode.
-
-Usage cannot usually be proven from static repository files. Say **“no repository-local usage evidence found”**, not **“unused”**, unless authoritative usage logs or configuration prove it. Do not recommend removing compatibility files solely because another agent's equivalent exists.
+In `full` or `config`, inventory project-local configuration. Check duplication, oversized context, contradictions, skill metadata/resources, MCP exposure and mutable packages, plugins, and hook cost. Read `references/config-hygiene.md` before this phase for JSON output, token estimates, optional usage counters, and evidence wording.
 
 ## Phase 3B: Code and file hygiene
 
-When mode is `full` or `code`, use tracked files as the default candidate set:
-
-```sh
-git ls-files
-```
-
-Use `find`/`fd` and modification times only as discovery aids. Prefer Git's last-touch date for tracked files:
-
-```sh
-git log -1 --format=%cs -- path/to/file
-```
-
-For each plausible candidate:
-
-1. Establish its intended role from nearby manifests, imports, docs, CI, and naming conventions.
-2. Search exact path, basename, stem, and important exported symbols with `rg` (or `grep` fallback). Search tracked files by default and exclude the candidate's own definition when counting references.
-3. Check references in manifests, scripts, CI, docs, tests, templates, configuration, and deployment definitions—not only source imports.
-4. Check Git history metadata such as creation and last-touch dates when useful. Do not expose historical secret contents.
-5. Check dynamic-use risks: command-line entrypoint, reflection, registration by naming convention, runtime string construction, external caller, generated input, fixture, migration, or operational runbook.
-6. Prefer file-level findings. Symbol-level dead-code claims based only on text search are low-confidence because declarations and usages are language-dependent.
-
-Reference searches are evidence, not proof. A self-reference-only file may still be a standalone executable; a frequently referenced file may still be obsolete as a whole.
+In `full` or `code`, start from tracked files; age, size, and names only suggest candidates. Establish ownership, run the reference helper, check static/dynamic entrypoints and relevant history, and find a native verification path. Read `references/code-hygiene.md` before this phase.
 
 ## Confidence model
 
-Assign one level to every finding:
+- **High** — independent signals agree; contract and ownership are understood; dynamic/external risk is resolved; native verification exists.
+- **Medium** — likely opportunity with an unresolved usage, history, ownership, or verification gap. Reliable zero usage may contribute only for types known to increment counters.
+- **Low** — mainly age, size, naming, duplication, or literal references; investigation lead only.
 
-- **High** — multiple independent signals agree, the ownership/entrypoint contract is understood, no dynamic or external-use risk remains, and a project-native verification path exists.
-- **Medium** — likely cleanup opportunity, but usage, history, ownership, or verification has an unresolved gap.
-- **Low** — based mainly on age, size, naming, duplication, or literal-reference counts. Present as an investigation lead, never as a deletion recommendation.
-
-Age alone is always low-confidence. “No matches” alone is never high-confidence.
+Age alone and shallow-clone age are not non-use evidence. No matches alone is never High. Zero is not evidence for passive plugins without counters.
 
 ## Phase 4: Report before changing anything
 
-Return a concise report with:
+Report scope/safety and stable finding IDs with confidence, evidence, uncertainty, and action. Ask for exact IDs, a named category, or no changes. Read `references/report-template.md` before reporting or continuing.
 
-### Scope and safety
+## Phase 5: Apply an approved batch
 
-- repository and selected mode
-- baseline worktree state
-- exclusions, especially secrets and generated/archived areas
-- tools available and important limitations
-- commands discovered for later verification, with side-effect classification
-
-### Findings
-
-| ID | Confidence | Category | Path/item | Evidence | Counter-evidence or uncertainty | Suggested action |
-|----|------------|----------|-----------|----------|---------------------------------|------------------|
-
-Use stable IDs such as `CFG-01`, `FILE-01`, and `CODE-01`. “Keep” and “investigate” are valid suggested actions. A healthy category may have no findings.
-
-### Summary
-
-- safe cleanup candidates
-- items needing human confirmation
-- low-confidence leads
-- areas not audited and why
-
-End by asking the user to choose exact finding IDs, a clearly named category, or no changes. Do not interpret “looks good” as cleanup approval.
-
-## Phase 5: Apply an approved cleanup batch
-
-Only after explicit approval:
-
-1. Re-check `git status --short --branch` and compare it with the baseline. If target files changed, pause and re-audit them.
-2. Restate the exact files and actions in the batch.
-3. Make the smallest changes that satisfy the approved findings. Do not opportunistically clean adjacent items.
-4. Never modify or remove baseline changes that are unrelated to the approved batch.
-5. Show the resulting diff and confirm that no unexpected paths changed.
-
-Prefer small batches grouped by one responsibility. Do not commit unless the user asks.
+Re-check status; pause if targets changed. Restate actions, make only the smallest approved edits, preserve unrelated work, and inspect the diff. Do not commit unless asked.
 
 ## Phase 6: Verify
 
-Run the cheapest meaningful project-native checks identified during discovery, escalating only as justified:
-
-1. syntax or configuration validation
-2. targeted lint/type/test checks
-3. broader build/test checks
-
-Ask before checks that use credentials, network services, paid quotas, production data, browsers, deployment tools, or irreversible/shared state. Compare post-check `git status` with the pre-check state and identify generated side effects. Do not delete new outputs without approval unless the command's documented disposable output was explicitly approved.
-
-Report:
-
-- checks run and outcomes
-- checks skipped and why
-- any side effects or remaining uncertainty
-- exact changed paths
-
-## Native-tool fallback
-
-Prefer `rg`, then fall back to `grep`. Prefer `fd` when already installed, then `find`. Do not install tools during a checkup unless the user explicitly asks. Optional semantic or AST tools may corroborate findings, but the audit must remain useful without them and must disclose when they were used.
+Run the cheapest meaningful native checks, escalating only when justified. Ask before network, credentials, quota, production data, browsers, deployments, or shared/irreversible effects. Report outcomes, skips, side effects, uncertainty, and paths.
 
 ## Stop conditions
 
-Stop and ask the user when:
+Stop when boundaries or ownership are unclear; external consumption is plausible; verification uses money, quota, credentials, or production data; cleanup overlaps existing work; write behavior is unknown; or evidence conflicts with the premise.
 
-- repository boundaries or ownership are unclear
-- a candidate may be externally consumed
-- the only available verification spends money, quota, credentials, or production data
-- cleanup overlaps pre-existing or concurrent changes
-- a command's write behavior is unknown
-- evidence conflicts with the user's premise
-
-When no defensible cleanup candidates exist, say so. A checkup does not need to produce deletions.
+When no defensible candidates exist, say so. A checkup does not need to produce deletions.

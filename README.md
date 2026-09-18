@@ -10,7 +10,7 @@ The skill follows the [Agent Skills specification](https://agentskills.io/specif
 
 Compatible agents discover it from that directory. Ask for a “project checkup,” “repository doctor,” “dead-code scan,” or “agent-configuration cleanup” to activate it.
 
-The skill includes read-only Bash helpers under `scripts/` for repeatable repository inventory and reference evidence. It requires Bash 4+, Git, `find`, and standard Unix utilities.
+The skill includes read-only Bash helpers under `scripts/` for repeatable repository inventory and reference evidence. It requires Bash 3.2+, Git, `find`, and standard Unix utilities; `jq` enables JSON configuration and opt-in Claude Code usage checks.
 
 ## Modes
 
