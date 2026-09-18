@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/sensitive.sh
+. "$script_dir/lib/sensitive.sh"
+
 usage() {
   cat <<'EOF'
 Usage: scan.sh [--mode full|config|code] [--stale-days N] [REPOSITORY]
@@ -67,20 +71,6 @@ command -v git >/dev/null 2>&1 || {
 root=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) || {
   printf 'Not a Git repository: %s\n' "$repo" >&2
   exit 1
-}
-
-is_sensitive_path() {
-  case "/$1/" in
-    */.env/*|*/.env.*/*|*/credentials/*|*/credential/*|*/secrets/*|*/secret/*|*/keys/*|*/cookies/*|*/cookie/*|*/sessions/*|*/session/*|*/browser-profile/*|*/auth/*)
-      return 0
-      ;;
-  esac
-  case "${1##*/}" in
-    .env|.env.*|*credential*|*secret*|*cookie*|*session*|*.pem|*.key|id_rsa|id_ed25519)
-      return 0
-      ;;
-  esac
-  return 1
 }
 
 printf '# Checkup inventory\n\n'
