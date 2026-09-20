@@ -6,7 +6,9 @@ Read this reference when preparing the report or applying an approved batch.
 
 Include scope, selected mode, baseline worktree state, exclusions, available tools, limitations, and later verification commands with their side-effect classification.
 
-Use stable IDs such as `CFG-01`, `FILE-01`, and `CODE-01`.
+For a `PROOF-` finding, state which of the six proof-route questions you could establish and from where, and which you could not. For a `DOC-` finding, name the contradicting source or quote the overlapping claims.
+
+Use stable IDs such as `CFG-01`, `FILE-01`, `CODE-01`, `DOC-01`, and `PROOF-01`.
 
 | ID | Confidence | Category | Path/item | Evidence | Counter-evidence or uncertainty | Suggested action |
 |----|------------|----------|-----------|----------|---------------------------------|------------------|

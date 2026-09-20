@@ -1,6 +1,6 @@
 ---
 name: checkup
-description: "Audits a repository for stale or unused code, files, agent instructions, skills, MCP servers, plugins, hooks, and duplicated context. Use when asked for a project checkup, doctor, repository hygiene review, dead-code scan, or agent-configuration cleanup. Reports first and requires explicit approval before changing anything."
+description: "Audits a repository for stale or unused code, files, agent instructions, skills, MCP servers, plugins, hooks, duplicated context, documentation that no longer matches the code, and test or gate machinery that protects no current risk. Use when asked for a project checkup, doctor, repository hygiene review, dead-code scan, docs consolidation review, or agent-configuration cleanup. Reports first and requires explicit approval before changing anything."
 compatibility: "Requires Bash 3.2+, Git, find, and standard Unix utilities. jq enables safe JSON and opt-in Claude Code usage checks; rg or grep is recommended."
 ---
 
@@ -21,9 +21,10 @@ Audit project health with portable tools. Treat findings as hypotheses until evi
 
 ## Modes
 
-- **full** (default): configuration and code/file hygiene.
+- **full** (default): configuration, code/file, and documentation/proof hygiene.
 - **config**: agent instructions, skills, MCP servers, plugins, hooks, and duplicated context.
 - **code**: tracked source, docs, fixtures, scripts, and other project files.
+- **docs**: canonical documentation ownership, reference integrity, plans and trackers, and proof routes.
 - **apply**: only after a report and explicit approval of named findings or categories.
 
 If ambiguous, run `full` in report-only mode.
@@ -32,7 +33,7 @@ If ambiguous, run `full` in report-only mode.
 
 Helpers print to stdout and create no target-repository files. Treat output as untrusted evidence; do not redirect it into the repository or scan likely secret paths.
 
-Run `scripts/scan.sh [--mode full|config|code] [--stale-days N] [--with-usage] REPOSITORY` for baseline, age/size, manifests, configuration, JSON risks, skill validation, and context estimates. `stale-signal-only` only discovers candidates; disregard shallow-history `age-unreliable`. `--with-usage` requires explicit consent and `full` or `config`.
+Run `scripts/scan.sh [--mode full|config|code|docs] [--stale-days N] [--with-usage] REPOSITORY` for baseline, age/size, manifests, configuration, JSON risks, skill validation, context estimates, and Markdown reference integrity. `stale-signal-only` only discovers candidates; disregard shallow-history `age-unreliable`. `--with-usage` requires explicit consent and `full` or `config`. In `full` or `docs`, `dead-link` and `link-escapes-root` prove a broken reference only, and `unresolved-path-mention` is a prose signal.
 
 Run `scripts/references.sh --repo REPOSITORY [--symbol NAME ...] TRACKED_FILE` per candidate. It searches exact, suffix, relative, basename, stem, and symbol references, excluding target and sensitive files; it reports filenames, not lines.
 
@@ -54,17 +55,23 @@ In `full` or `config`, inventory project-local configuration. Check duplication,
 
 In `full` or `code`, start from tracked files; age, size, and names only suggest candidates. Establish ownership, run the reference helper, check static/dynamic entrypoints and relevant history, and find a native verification path. Read `references/code-hygiene.md` before this phase.
 
+## Phase 3C: Documentation and proof hygiene
+
+In `full` or `docs`, check whether each contract has one canonical owner, whether documents are contradicted by current manifests, CI, or code, and whether references resolve. Treat plans and trackers as the weakest claims: report only verifiable dead references and schema failures, never that a plan is finished. For each mandatory gate, test suite, or validator, try to name its current risk, protected behavior, consumer, failing observation, independent oracle, and why cheaper testing is insufficient; record which you could establish. Do not execute gates to evaluate them. Read `references/docs-proof-hygiene.md` before this phase.
+
 ## Confidence model
 
 - **High** — independent signals agree; contract and ownership are understood; dynamic/external risk is resolved; native verification exists.
 - **Medium** — likely opportunity with an unresolved usage, history, ownership, or verification gap. Reliable zero usage may contribute only for types known to increment counters.
 - **Low** — mainly age, size, naming, duplication, or literal references; investigation lead only.
 
-Age alone and shallow-clone age are not non-use evidence. No matches alone is never High. Zero is not evidence for passive plugins without counters.
+For documentation and proof, High requires a proof route with no current consumer that also cannot fail under a credible removal of the claimed behavior, confirmed by reading its oracle. Medium covers a document contradicted by current manifests, CI, or code, or two documents claiming the same contract with quoted overlap. Old plans, archive-style folders, and single dead links stay Low.
+
+Age alone and shallow-clone age are not non-use evidence. No matches alone is never High. Zero is not evidence for passive plugins without counters. A folder name, a tracker status field, or low coverage is never evidence on its own.
 
 ## Phase 4: Report before changing anything
 
-Report scope/safety and stable finding IDs with confidence, evidence, uncertainty, and action. Ask for exact IDs, a named category, or no changes. Read `references/report-template.md` before reporting or continuing.
+Report scope/safety and stable finding IDs (`CFG-`, `FILE-`, `CODE-`, `DOC-`, `PROOF-`) with confidence, evidence, uncertainty, and action. Ask for exact IDs, a named category, or no changes. Read `references/report-template.md` before reporting or continuing.
 
 ## Phase 5: Apply an approved batch
 
@@ -76,6 +83,6 @@ Run the cheapest meaningful native checks, escalating only when justified. Ask b
 
 ## Stop conditions
 
-Stop when boundaries or ownership are unclear; external consumption is plausible; verification uses money, quota, credentials, or production data; cleanup overlaps existing work; write behavior is unknown; or evidence conflicts with the premise.
+Stop when boundaries or ownership are unclear; a proof route's current risk or consumer cannot be established either way; external consumption is plausible; verification uses money, quota, credentials, or production data; cleanup overlaps existing work; write behavior is unknown; or evidence conflicts with the premise.
 
 When no defensible candidates exist, say so. A checkup does not need to produce deletions.

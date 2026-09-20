@@ -7,7 +7,7 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 usage() {
   cat <<'EOF'
-Usage: scan.sh [--mode full|config|code] [--stale-days N] [--with-usage] [REPOSITORY]
+Usage: scan.sh [--mode full|config|code|docs] [--stale-days N] [--with-usage] [REPOSITORY]
 
 Prints a read-only repository inventory to stdout. It does not run project
 commands, inspect secret contents, or create files in the target repository.
@@ -61,10 +61,10 @@ while (($#)); do
 done
 
 case "$mode" in
-  full|config|code) ;;
+  full|config|code|docs) ;;
   *) printf 'Invalid mode: %s\n' "$mode" >&2; exit 2 ;;
 esac
-if [[ $with_usage == true && $mode == code ]]; then
+if [[ $with_usage == true && ( $mode == code || $mode == docs ) ]]; then
   printf '%s\n' '--with-usage is valid only with --mode config or --mode full' >&2
   exit 2
 fi
@@ -438,6 +438,87 @@ if [[ $mode == full || $mode == config ]]; then
   fi
 fi
 
+normalize_path() {
+  local path=$1 result= segment rest
+  while [[ -n $path ]]; do
+    segment=${path%%/*}
+    if [[ $segment == "$path" ]]; then
+      rest=
+    else
+      rest=${path#*/}
+    fi
+    path=$rest
+    case "$segment" in
+      ''|.)
+        ;;
+      ..)
+        if [[ $result == */* ]]; then
+          result=${result%/*}
+        elif [[ -n $result ]]; then
+          result=
+        else
+          return 1
+        fi
+        ;;
+      *)
+        result=${result:+$result/}$segment
+        ;;
+    esac
+  done
+  printf '%s' "$result"
+}
+
+if [[ $mode == full || $mode == docs ]]; then
+  printf '\n## Markdown reference integrity\n'
+  printf 'kind\tsource\treference\tresolved\n'
+  while IFS= read -r -d '' doc; do
+    case "$doc" in
+      *.md|*.markdown|*.mdx) ;;
+      *) continue ;;
+    esac
+    is_sensitive_path "$doc" && continue
+    [[ -f $root/$doc ]] || continue
+    doc_dir=${doc%/*}
+    [[ $doc_dir == "$doc" ]] && doc_dir=
+    LC_ALL=C grep -Eo '\]\([^)]+\)' "$root/$doc" 2>/dev/null |
+      sed -e 's/^](//' -e 's/)$//' -e 's/[[:space:]].*$//' |
+      sort -u |
+      while IFS= read -r link; do
+        [[ -n $link ]] || continue
+        case "$link" in
+          '#'*|'<'*|'{'*|'$'*|'%'*) continue ;;
+          *://*|mailto:*|tel:*|data:*) continue ;;
+          /*) continue ;;
+        esac
+        link=${link%%#*}
+        [[ -n $link ]] || continue
+        resolved=$(normalize_path "${doc_dir:+$doc_dir/}$link") || {
+          printf 'link-escapes-root\t%q\t%q\t-\n' "$doc" "$link"
+          continue
+        }
+        [[ -n $resolved ]] || continue
+        if [[ ! -e $root/$resolved && ! -L $root/$resolved ]]; then
+          printf 'dead-link\t%q\t%q\t%q\n' "$doc" "$link" "$resolved"
+        fi
+      done || true
+    LC_ALL=C grep -Eo '`[A-Za-z0-9_.][A-Za-z0-9._/-]*/[A-Za-z0-9._/-]+`' "$root/$doc" 2>/dev/null |
+      tr -d '`' |
+      sort -u |
+      while IFS= read -r ref; do
+        case "$ref" in
+          */) continue ;;
+        esac
+        if [[ ! -e $root/$ref && ! -L $root/$ref ]]; then
+          resolved=$(normalize_path "${doc_dir:+$doc_dir/}$ref") || continue
+          [[ -n $resolved ]] || continue
+          if [[ ! -e $root/$resolved && ! -L $root/$resolved ]]; then
+            printf 'unresolved-path-mention\t%q\t%q\t%q\n' "$doc" "$ref" "$resolved"
+          fi
+        fi
+      done || true
+  done < <(git -C "$root" ls-files -z)
+fi
+
 printf '\n## Interpretation guardrails\n'
 printf '%s\n' \
   'stale-signal-only is not evidence that a file is unused' \
@@ -447,5 +528,7 @@ printf '%s\n' \
   'frontmatter-unparsed is uncertainty, not proof of an invalid skill' \
   'token counts are estimates; measure exact context with /context in Claude Code' \
   'MCP tool schemas may be deferred and are not estimated here' \
+  'unresolved-path-mention is a prose signal only; the text may describe a path that never existed here' \
+  'a dead link proves a broken reference, never that the linking document is obsolete' \
   'run references.sh for each plausible tracked-file candidate' \
   'obtain explicit approval before any write or deletion'
